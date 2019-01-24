@@ -18,9 +18,11 @@ import subprocess
 import os
 import sys
 
-_ = '''
+import numpy as np
 
 Kelvin = 273.15
+
+_ = '''
 
 # Following data was obtained by running exiftool -flir:All on the Image file
 Planck_R1 = 16526.467
@@ -35,18 +37,11 @@ Emissivity = 0.95
 # Following formulae were obtained from the following pages -
 # http://u88.n24.queensu.ca/exiftool/forum/index.php/topic,4898.msg23944.html#msg23944
 
-Raw_Reflect = Planck_R1 / (Planck_R2 * (math.e**(Planck_B / T_Reflect) - Planck_F)) - Planck_O
 print (Raw_Reflect)
 
-def get_raw_obj(pixel):
-    return (pixel - (1 - Emissivity) * Raw_Reflect)/ Emissivity
 
 def process_pixel2(pixel):
     value = Planck_B / math.log
-
-def process_pixel(pixel):
-    value = Planck_B / math.log(Planck_R1 / (Planck_R2 * (get_raw_obj(pixel) + Planck_O)) + Planck_F) - Kelvin
-    return value
 
 def process_pixel_3(pixel):
     value = Planck_B / math.log(Planck_R1 / (Planck_R2 * (pixel + Planck_O)) + Planck_F) - Kelvin
@@ -57,8 +52,17 @@ def process_pixel_3(pixel):
 #print(process_pixel(5150))
 #print(process_pixel(5523))
 #print(process_pixel_3(16916))
-
 '''
+
+def process_data_point(pixel, planck_b, planck_r1, planck_f, planck_r2, planck_o, emissivity, t_reflect):
+
+    raw_reflect = planck_r1 / (planck_r2 * (math.e**(planck_b / (t_reflect + Kelvin)) - planck_f)) - planck_o
+
+    def get_raw_obj(pixel):
+        return (pixel - (1 - emissivity) * raw_reflect)/ emissivity
+
+    value = planck_b / math.log(planck_r1 / (planck_r2 * (get_raw_obj(pixel) + planck_o)) + planck_f) - Kelvin
+    return value
 
 def generate_raw_thermal_image_file(input_file):
     """
@@ -86,9 +90,38 @@ def generate_raw_thermal_image_file(input_file):
 def get_flir_data_for_image(input_file):
     """
     Runs exiftool -flir:all <input_file> and returns a dictionary containing following keys
-    ['planck_r1', 'planck_b', 'planck_f', 'planck_o', 'planck_r2', 't_reflect', 'emissivity']
     """
-    pass
+    command  = "/usr/bin/exiftool -flir:all %s" % input_file
+    result = subprocess.run(command.split(), capture_output=True)
+
+    params_dict = {}
+    if result.returncode == 0:
+        params_dict = dict.fromkeys(['planck_r1', 'planck_b', 'planck_f', 'planck_o',
+            'planck_r2', 't_reflect', 'emissivity', 't_units'])
+        datalines = result.stdout.decode().split("\n")
+        for line in datalines:
+            toks = line.split(':')
+            if toks[0].strip() == 'Planck O':
+                params_dict['planck_o'] = int(toks[1])
+            elif toks[0].strip() == 'Planck B':
+                params_dict['planck_b'] = float(toks[1])
+            elif toks[0].strip() == 'Planck R1':
+                params_dict['planck_r1'] = float(toks[1])
+            elif toks[0].strip() == 'Planck R2':
+                params_dict['planck_r2'] = float(toks[1])
+            elif toks[0].strip() == 'Planck F':
+                params_dict['planck_f'] = float(toks[1])
+            elif toks[0].strip() == 'Emissivity':
+                params_dict['emissivity'] = float(toks[1])
+            elif toks[0].strip() == 'Reflected Apparent Temperature':
+                temp, units = toks[1].split()
+                params_dict['t_reflect'] = float(temp)
+
+    else:
+        datalines = result.stderr
+
+    print (params_dict)
+    return params_dict
 
 def fixup_png_file(input_file):
     """
@@ -101,11 +134,13 @@ def fixup_png_file(input_file):
 
     return im
 
-def image_data_to_temp(image_data):
+def image_data_to_temp(image_data, calc_params):
     """
     Takes image data (sensor reading as 16 byte integer) and outputs temperature
     in degrees celcius corresponding to each pixel.
     """
+    temp_func = np.vectorize(lambda x: process_data_point(x, **calc_params))
+    return temp_func(image_data)
 
 if __name__ == '__main__':
 
@@ -113,7 +148,16 @@ if __name__ == '__main__':
         print ("Usage: python flir_process.py <flir-image.jpg>")
         sys.exit(-1)
 
-    png_file = generate_raw_thermal_image_file(sys.argv[1])
+    input_file = sys.argv[1]
+
+    # 1. Get the embedded PNG image data from the JPEG file and save it to PNG file.
+    png_file = generate_raw_thermal_image_file(input_file)
+
+    # 2. Fixup the endian-ness
     image_data = fixup_png_file(png_file)
 
-    image_data_to_temp(image_data)
+    # 3. Get the parameters required for computation from the EXIF data.
+    calc_params = get_flir_data_for_image(input_file)
+
+    temp_data = image_data_to_temp(image_data, calc_params)
+    print (temp_data)
