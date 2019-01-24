@@ -54,9 +54,13 @@ def process_pixel_3(pixel):
 #print(process_pixel_3(16916))
 '''
 
-def process_data_point(pixel, planck_b, planck_r1, planck_f, planck_r2, planck_o, emissivity, t_reflect):
+def process_data_point(pixel, planck_b, planck_r1, planck_f, planck_r2, planck_o, emissivity, t_reflect, t_units):
 
-    raw_reflect = planck_r1 / (planck_r2 * (math.e**(planck_b / (t_reflect + Kelvin)) - planck_f)) - planck_o
+    if t_units == 'F':
+        temp = t_reflect - 32 / 1.80
+    else:
+        temp = t_reflect
+    raw_reflect = planck_r1 / (planck_r2 * (math.e**(planck_b / (temp + Kelvin)) - planck_f)) - planck_o
 
     def get_raw_obj(pixel):
         return (pixel - (1 - emissivity) * raw_reflect)/ emissivity
@@ -116,6 +120,8 @@ def get_flir_data_for_image(input_file):
             elif toks[0].strip() == 'Reflected Apparent Temperature':
                 temp, units = toks[1].split()
                 params_dict['t_reflect'] = float(temp)
+                params_dict['t_units'] = units
+
 
     else:
         datalines = result.stderr
