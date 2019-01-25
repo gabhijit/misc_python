@@ -135,7 +135,7 @@ def fixup_png_file(input_file):
     we read.
     """
     im = imageio.imread(input_file)
-    im = im.astype('int16')
+    im = im.astype('uint16')
     im = im.byteswap('<')
 
     return im
