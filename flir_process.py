@@ -148,6 +148,12 @@ def image_data_to_temp(image_data, calc_params):
     temp_func = np.vectorize(lambda x: process_data_point(x, **calc_params))
     return temp_func(image_data)
 
+def save_to_csv(input_filename, data):
+
+    outfile_basename = os.path.splitext(input_filename)
+    outfile_full_pathname = os.extsep.join([outfile_basename[0], 'csv'])
+    np.savetxt(outfile_full_pathname, data, fmt="%.6g", delimiter=",")
+
 if __name__ == '__main__':
 
     if len(sys.argv) != 2:
@@ -166,4 +172,5 @@ if __name__ == '__main__':
     calc_params = get_flir_data_for_image(input_file)
 
     temp_data = image_data_to_temp(image_data, calc_params)
+    save_to_csv(input_file, temp_data)
     print (temp_data)
